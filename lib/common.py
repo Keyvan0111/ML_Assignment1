@@ -4,7 +4,7 @@ Short: Common functions
 """
 
 import pandas as pd # type: ignore
-import numpy as np
+import numpy as np # type: ignore
 
 def get_songs(file_name: str):
     """
