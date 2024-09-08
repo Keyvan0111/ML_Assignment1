@@ -1,141 +1,121 @@
-
 import pandas as pd # type: ignore
 import numpy as np # type: ignore
-from math import *
+import matplotlib.pyplot as plt # type: ignore
 
-from lib.common import *
-from sklearn.model_selection import * # type: ignore
-from sklearn.metrics import * # type: ignore
-import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split # type: ignore
+from sklearn.metrics import accuracy_score # type: ignore
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay # type: ignore
+
 
 def sigmoid_function(z):
-    sigmoid = 1/(1 + np.exp(-z))
     print("Calculating Sigmoid....\n")
-    print(f'z {z.shape}: {z}\n')
-    print(f'sigmoid output {sigmoid.shape}: {sigmoid}')
-    return sigmoid
+    return 1 / (1 + np.exp(-z))
 
-def linear_regression(x, w):
-    """
-    Shapes of x and w must be dottable    
-    """
-    z = x@w.T
-    print("Calculating Z....\n")
-    print(f'x {x.shape}: {x}\n')
-    print(f'w.T {w.T.shape}: {w.T}\n')
-    print(f'z output {z.shape}: {z}\n')
-    return z
+def linear_regression(X, weights):
+    return np.dot(X, weights)
 
-def SGD(w_old, learning_rate, y, y_hat, X):
-    w_new = w_old - learning_rate * np.dot(X.T, (y_hat - y))
-    print("Calculating SGD....\n")
-    print(f'w_old {w_old.shape}: {w_old}\n')
-    print(f'learning rate: {learning_rate}\n')
-    print(f'X {X.shape}: {X}\n')
-    print(f'y_hat {y_hat.shape}: {y_hat}\n')
-    print(f'y {y.shape}: {y}\n')
-    print(f'y {y.shape}: {y}\n')
-    print(f'w_new {w_new.shape}: {w_new}\n')
-
-    return w_new
+def SGD(weights_old, learning_rate, y, y_hat, X):
+    gradient = np.dot(X.T, (y_hat - y)) / len(y)
+    weights_new = weights_old - learning_rate * gradient
+    return weights_new
 
 def loss_function(y, y_hat, epsilon):
-    loss = -np.sum((y * np.log2(y_hat+epsilon)) + (1 - y) * np.log2(1-y_hat+epsilon))
-    print("Calculating Loss....\n")
-    print(f'y {y.shape}: {y}\n')
-    print(f'y_hat {y_hat.shape}: {y_hat}\n')
-    print(f'epsilon: {epsilon}\n')
-    print(f'y {y.shape}: {y}\n')
-    print(f'Loss: {loss}')
+    y_hat = np.clip(y_hat, epsilon, 1 - epsilon)  # To avoid log(0)
+    return -np.mean(y * np.log(y_hat) + (1 - y) * np.log(1 - y_hat))
 
-    return loss
-
-def train_model(x, y, epochs, lr, epsilon):
-    w = np.array([[1,1,1]])
+def train_model(X, y, epochs, learning_rate, epsilon):
+    num_features = X.shape[1]
+    weights = np.zeros((num_features, 1))
     loss_values = []
 
     for _ in range(epochs):
-        # Forward propagate
-        z = linear_regression(x, w)
+        # Forward propagation
+        z = linear_regression(X, weights)
         y_hat = sigmoid_function(z)
         loss = loss_function(y, y_hat, epsilon)
+        weights = SGD(weights, learning_rate, y, y_hat, X)
         loss_values.append(loss)
-        w = SGD(w, lr, y, y_hat, x)
 
+    return loss_values, weights
+
+def preprocess_data(df):
+    df = pd.read_csv('SpotifyFeatures.csv')
+    df = df[df['genre'].isin(['Pop', 'Classical'])]
+    df['label'] = df['genre'].apply(lambda x: 1 if x == 'Pop' else 0)
     
-    # accuracy_score(y, y_hat)
-    return loss_values, w
+    features = df[['liveness', 'loudness']].values
+    labels = df['label'].values
 
-if __name__ == "__main__":
+    # Add bias term
+    ones = np.ones((features.shape[0], 1))
+    features = np.concatenate((features, ones), axis=1)  # Add bias term to features
+    return features, labels
 
-    # Constants for data
-    SONGS_FILE = 'SpotifyFeatures.csv'
-    ALL_SONGS = get_songs(SONGS_FILE)
-    FEATURES_USED = ['genre','liveness','loudness']
-    POP_SONGS = get_songs_by_genre(ALL_SONGS, 'Pop')
-    CLASSICAL_SONGS = get_songs_by_genre(ALL_SONGS, 'Classical')
-    EPSILON = 0.000001
-    songs = ALL_SONGS
+def compute_and_display_confusion_matrix(y_true, y_pred):
+    cm = confusion_matrix(y_true, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Classical', 'Pop'])
+    disp.plot(cmap=plt.cm.Blues)
+    plt.title('Confusion Matrix')
+    plt.show()
+    return cm
+
+def main():
+    # Load and preprocess data
+    df = pd.read_csv('SpotifyFeatures.csv')
+    features, labels = preprocess_data(df)
+
+    # Split data into train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, stratify=labels)
+
+    # Reshape labels
+    y_train = y_train.reshape(-1, 1)
+    y_test = y_test.reshape(-1, 1)
+
+    # Train model
+    epochs = 1000
+    learning_rate = 0.01
+    epsilon = 1e-8
+    loss_list, weights = train_model(X_train, y_train, epochs, learning_rate, epsilon)
+
+    # Predictions
+    train_predictions = sigmoid_function(linear_regression(X_train, weights))
+    train_predictions = (train_predictions >= 0.5).astype(int)
     
+    test_predictions = sigmoid_function(linear_regression(X_test, weights))
+    test_predictions = (test_predictions >= 0.5).astype(int)
 
-    # Constants for training
-    epochs = 100
-    LR = 0.005
+    train_accuracy = accuracy_score(y_train, train_predictions)
+    test_accuracy = accuracy_score(y_test, test_predictions)
 
-    # Sdd labels to genre feature,
-    # NB! This changes ALL_SONGS, POP_SONGS, CLASSICAL_SONGS since songs stores a refrence of ALL_SONGS
-    add_label(songs, 'genre')
+    print(f"Training accuracy: {train_accuracy:.4f}")
+    print(f"Test accuracy: {test_accuracy:.4f}")
 
-    # Stripped all other features from dataset and convert to numpy array
-    songs_matrix = data_filter(songs, FEATURES_USED)
-    songs_matrix = songs_matrix.to_numpy()
+    # Compute and display confusion matrix
+    cm = compute_and_display_confusion_matrix(y_test, test_predictions)
+    print("Confusion Matrix:")
+    print(cm)
 
-    # Add biases to the matrix
-    ones = np.ones((songs_matrix.shape[0], 1))
-    songs_matrix = np.concatenate((songs_matrix, ones), 1)
-    # print(songs_matrix)
-
-    # reshape true y
-    y = songs_matrix[:, 0].reshape(-1, 1)
-
-    # remove true values from songs matrix
-    X = np.delete(songs_matrix, 0,axis=1)
-
-    # stratify gets more distributed split
-    # Shuffles songs_matrix and y correspondingly
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle = True, stratify = y)
-
-    print("Xtrain:", X_train)
-    print("Xtest:", X_test)
-    print("ytrain:", y_train)
-    print("ttest:", y_test)
-
-    loss_list, weights = train_model(X_train, y_train, epochs, LR, EPSILON)
-    print("loss_list after:",loss_list)
-    print("weights",weights)
-
-    epochs_list = np.linspace(0,epochs, 100)
-    # Plot loss_list
+    # Plot loss over epochs
     plt.figure(figsize=(14, 6))
-
+    
     plt.subplot(1, 2, 1)
-    plt.plot(epochs_list, loss_list,  label='Loss')
+    plt.plot(range(epochs), loss_list, label='Loss')
     plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.title('Loss Over Epochs')
     plt.legend()
 
-    # Plot weights
+    # Plot weights over epochs
     plt.subplot(1, 2, 2)
-    for i in range(weights.shape[1]):
-        plt.plot(weights[:, i], label=f'Weight{i+1}' )
+    for i in range(weights.shape[0]):
+        plt.plot(weights[i, :], label=f'Weight{i+1}')
     plt.xlabel('Epochs')
     plt.ylabel('Weights')
     plt.title('Weights Over Epochs')
     plt.legend()
 
     plt.tight_layout()
-    plt.show()
+    plt.show()      
 
-
+if __name__ == "__main__":
+    main()

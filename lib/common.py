@@ -40,3 +40,7 @@ def data_filter(data_frame, features: list[str]):
     Returns new data_frame only with the given features
     """
     return data_frame[features]
+
+def matrix_info(x):
+    print(f'str{x.__name__()}.T {x.shape}: {x}\n')
+
